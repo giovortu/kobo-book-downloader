@@ -11,7 +11,14 @@ from Crypto.Util import Padding
 # Based on obok.py by Physisticated.
 class KoboDrmRemover:
     def __init__(self, deviceId: str, userId: str):
-        self.DeviceIdUserIdKey = KoboDrmRemover.__MakeDeviceIdUserIdKey(deviceId, userId)
+        self.candidateKeys = [
+            KoboDrmRemover.__MakeDeviceIdUserIdKey(deviceId, userId),
+        ]
+        if deviceId != "":
+            # Fallback for accounts activated through Web UI where pwsdid was sent as ""
+            self.candidateKeys.append(KoboDrmRemover.__MakeDeviceIdUserIdKey("", userId))
+        self.DeviceIdUserIdKey = self.candidateKeys[0]
+        self._workingKey = None
 
     @staticmethod
     def __MakeDeviceIdUserIdKey(deviceId: str, userId: str) -> bytes:
@@ -21,12 +28,22 @@ class KoboDrmRemover:
 
     def __DecryptContents(self, contents: bytes, contentKeyBase64: str) -> bytes:
         contentKey = base64.b64decode(contentKeyBase64)
-        keyAes = AES.new(self.DeviceIdUserIdKey, AES.MODE_ECB)
-        decryptedContentKey = keyAes.decrypt(contentKey)
+        keys_to_try = [self._workingKey] if self._workingKey else self.candidateKeys
 
-        contentAes = AES.new(decryptedContentKey, AES.MODE_ECB)
-        decryptedContents = contentAes.decrypt(contents)
-        return Padding.unpad(decryptedContents, AES.block_size, "pkcs7")
+        for masterKey in keys_to_try:
+            try:
+                keyAes = AES.new(masterKey, AES.MODE_ECB)
+                decryptedContentKey = keyAes.decrypt(contentKey)
+
+                contentAes = AES.new(decryptedContentKey, AES.MODE_ECB)
+                decryptedContents = contentAes.decrypt(contents)
+                unpadded = Padding.unpad(decryptedContents, AES.block_size, "pkcs7")
+                self._workingKey = masterKey
+                return unpadded
+            except ValueError:
+                continue
+
+        raise ValueError("Padding is incorrect.")
 
     def RemoveDrm(self, inputPath: str, outputPath: str, contentKeys: Dict[str, str]) -> None:
         with zipfile.ZipFile(inputPath, "r") as inputZip:

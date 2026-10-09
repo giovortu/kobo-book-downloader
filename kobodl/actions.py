@@ -190,6 +190,8 @@ def Login(user: User) -> None:
 def InitiateLogin(user: User) -> Tuple[str, str]:
     """Start the login process and return activation details"""
     kobo = Kobo(user)
+    kobo.AuthenticateDevice()
+    kobo.LoadInitializationSettings()
     return kobo._Kobo__ActivateOnWeb()
 
 
@@ -197,7 +199,10 @@ def CheckActivation(user: User, check_url: str) -> bool:
     """Check if activation is complete and setup user if so"""
     kobo = Kobo(user)
     try:
-        email, user_id, user_key = kobo._Kobo__CheckActivation(check_url)
+        res = kobo._Kobo__CheckActivation(check_url)
+        if not res:
+            return False
+        email, user_id, user_key = res
         user.Email = email
         user.UserId = user_id
         kobo.AuthenticateDevice(user_key)

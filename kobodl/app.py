@@ -7,6 +7,7 @@ from kobodl.globals import Globals
 from kobodl.settings import User
 
 app = Flask(__name__)
+pending_users = {}
 
 
 @app.route('/')
@@ -23,6 +24,7 @@ def users():
             user = User(Email=email)
             try:
                 activation_url, activation_code = actions.InitiateLogin(user)
+                pending_users[activation_url] = user
                 return jsonify(
                     {
                         'activation_url': 'https://www.kobo.com/activate',
@@ -48,9 +50,10 @@ def check_activation():
     if not check_url or not email:
         return jsonify({'error': 'Missing required parameters'}), 400
 
-    user = User(Email=email)
+    user = pending_users.get(check_url) or User(Email=email)
     try:
         if actions.CheckActivation(user, check_url):
+            pending_users.pop(check_url, None)
             Globals.Settings.UserList.users.append(user)
             Globals.Settings.Save()
             return jsonify({'success': True})
